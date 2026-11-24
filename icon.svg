@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0d0d0d"/>
+  <g font-family="Roboto Condensed, Roboto, Arial, sans-serif" font-weight="700" font-size="220" fill="#e8e5de" text-anchor="middle">
+    <rect x="70" y="126" width="172" height="260" rx="16" fill="#232325"/>
+    <rect x="270" y="126" width="172" height="260" rx="16" fill="#232325"/>
+    <text x="156" y="334">1</text>
+    <text x="356" y="334">2</text>
+  </g>
+  <rect x="70" y="252" width="372" height="8" fill="#000" opacity=".8"/>
+</svg>

@@ -1,0 +1,178 @@
+/* ===== テーマ ===== */
+:root {
+  --bg: #0d0d0d;      /* マットな黒 */
+  --panel: #232325;   /* パネル上半分 */
+  --panel2: #1c1c1e;  /* パネル下半分（少し暗く） */
+  --fg: #e8e5de;
+  --dim: rgba(232, 229, 222, .42);
+  --hinge: rgba(0, 0, 0, .78);
+  --line: rgba(255, 255, 255, .06);
+  --shadow: rgba(0, 0, 0, .6);
+  --glow: none;
+  /* --h はJSで画面サイズから計算して上書き */
+  --h: 170px;
+}
+[data-theme="cream"] {
+  --bg: #d6ccb6;
+  --panel: #f4eddd;
+  --panel2: #ebe2cf;
+  --fg: #2d2923;
+  --dim: rgba(45, 41, 35, .5);
+  --hinge: rgba(80, 62, 38, .45);
+  --line: rgba(0, 0, 0, .08);
+  --shadow: rgba(70, 52, 28, .35);
+}
+[data-theme="orange"] {
+  --bg: #070605;
+  --panel: #1b1815;
+  --panel2: #15130f;
+  --fg: #ff8c1a;
+  --dim: rgba(255, 140, 26, .45);
+  --hinge: rgba(0, 0, 0, .85);
+  --line: rgba(255, 140, 26, .1);
+  --shadow: rgba(0, 0, 0, .7);
+  --glow: 0 0 calc(var(--h) * .05) rgba(255, 115, 0, .35);
+}
+
+/* ===== 土台 ===== */
+html, body {
+  margin: 0; height: 100%; overflow: hidden;
+  background: var(--bg); color: var(--fg);
+  font-family: "sans-serif-condensed", "Roboto Condensed", "Roboto", "Helvetica Neue", Arial, sans-serif;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background-color .4s;
+}
+#stage {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 6.5vh;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ===== 時計の並び ===== */
+#clock { display: flex; align-items: center; }
+.group { display: flex; }
+.card + .card { margin-left: calc(var(--h) * .055); }
+.colon {
+  width: calc(var(--h) * .26); height: var(--h);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.colon i {
+  display: block; width: calc(var(--h) * .075); height: calc(var(--h) * .075);
+  margin: calc(var(--h) * .1) 0; border-radius: 50%;
+  background: var(--fg); opacity: .5; box-shadow: var(--glow);
+}
+
+/* ===== フリップパネル ===== */
+.card {
+  position: relative;
+  width: calc(var(--h) * .7); height: var(--h);
+  border-radius: calc(var(--h) * .05);
+  perspective: calc(var(--h) * 4);
+  box-shadow: 0 calc(var(--h) * .03) calc(var(--h) * .07) var(--shadow),
+              0 0 0 1px rgba(0, 0, 0, .25);
+}
+/* 中央のヒンジ線 */
+.card::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 50%; z-index: 3;
+  height: calc(var(--h) * .014); margin-top: calc(var(--h) * -.007);
+  background: var(--hinge);
+}
+.half, .face { overflow: hidden; }
+.half { position: absolute; left: 0; right: 0; height: 50%; }
+.top {
+  top: 0; background: var(--panel);
+  border-radius: calc(var(--h) * .05) calc(var(--h) * .05) 0 0;
+  box-shadow: inset 0 1px 0 var(--line);
+}
+.bottom {
+  bottom: 0; background: var(--panel2);
+  border-radius: 0 0 calc(var(--h) * .05) calc(var(--h) * .05);
+}
+/* 数字：半分の箱の中に全高の数字を置き、上下で見せる位置を変える */
+.half span, .face span {
+  position: absolute; left: 0; right: 0; top: 0; height: 200%;
+  line-height: var(--h); text-align: center;
+  font-size: calc(var(--h) * .8); font-weight: 700;
+  color: var(--fg); text-shadow: var(--glow);
+}
+.bottom span, .back span { top: -100%; }
+
+/* めくれる板（上半分の位置にあり、下辺を軸に -180° 回転） */
+.flap {
+  position: absolute; left: 0; right: 0; top: 0; height: 50%; z-index: 2;
+  transform-origin: 50% 100%;
+  -webkit-transform-style: preserve-3d; transform-style: preserve-3d;
+  visibility: hidden;
+}
+.flap.go { visibility: visible; animation: flip .5s forwards; }
+.face {
+  position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+  -webkit-backface-visibility: hidden; backface-visibility: hidden;
+}
+.front {
+  background: var(--panel);
+  border-radius: calc(var(--h) * .05) calc(var(--h) * .05) 0 0;
+}
+.back {
+  background: var(--panel2);
+  border-radius: 0 0 calc(var(--h) * .05) calc(var(--h) * .05);
+  transform: rotateX(180deg);
+}
+/* めくれるときの陰 */
+.face::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+  background: #000; opacity: 0;
+}
+.flap.go .front::after { animation: shadeF .5s forwards; }
+.flap.go .back::after  { animation: shadeB .5s forwards; }
+
+@keyframes flip {
+  0%   { transform: rotateX(0deg);    animation-timing-function: cubic-bezier(.45, 0, .85, .55); }
+  78%  { transform: rotateX(-180deg); animation-timing-function: ease-out; }
+  88%  { transform: rotateX(-166deg); animation-timing-function: ease-in; }
+  100% { transform: rotateX(-180deg); }
+}
+@keyframes shadeF { 0% { opacity: 0; } 40%, 100% { opacity: .38; } }
+@keyframes shadeB { 0%, 40% { opacity: .32; } 78%, 100% { opacity: 0; } }
+
+/* ポモドーロ終了の点滅 */
+#clock.done .card { animation: blink 1s steps(2, start) 4; }
+@keyframes blink { 50% { opacity: .2; } }
+
+/* ===== 小さな表示 ===== */
+#sec {
+  position: absolute; right: 3.5vw; bottom: 3vh;
+  font-size: 6vh; letter-spacing: .06em; color: var(--dim); text-shadow: var(--glow);
+}
+#label {
+  position: absolute; left: 3.5vw; top: 3.2vh; display: none;
+  font-size: 3.4vh; letter-spacing: .25em; color: var(--dim);
+}
+body.pomo #label { display: block; }
+
+/* ===== 右上アイコン ===== */
+#icons { position: fixed; top: 1.5vh; right: 1.5vw; display: flex; z-index: 10; }
+#icons button {
+  width: 10vh; height: 10vh; min-width: 30px; min-height: 30px;
+  padding: 2.6vh; margin: 0; border: 0; background: none;
+  color: var(--fg); opacity: .22; outline: none; transition: opacity .2s;
+}
+#icons button.on { opacity: .85; }
+#icons button[disabled] { display: none; }
+#icons svg {
+  display: block; width: 100%; height: 100%;
+  fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+}
+#btnSnd .w, #btnSnd.on .x { display: none; }
+#btnSnd.on .w { display: inline; }
+
+/* ===== 最下部の1行バー ===== */
+#bar {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  height: 6.5vh; min-height: 18px; padding: 0 3.5vw;
+  display: flex; align-items: center; justify-content: space-between;
+  border-top: 1px solid var(--line);
+  font-size: 2.9vh; letter-spacing: .06em; color: var(--dim);
+  white-space: nowrap; overflow: hidden;
+}
