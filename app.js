@@ -2,14 +2,20 @@
   'use strict';
 
   /* ===== 設定 ===== */
-  var POMO_MS = 25 * 60 * 1000;            // ポモドーロ 25分
-  var WX_INTERVAL = 15 * 60 * 1000;        // 天気 15分ごと
-  var WX_RETRY = 3 * 60 * 1000;            // 失敗時は3分後に再試行
+  var POMO_MS = 25 * 60 * 1000;        // ポモドーロ 25分
+  var ICON_HIDE_MS = 5000;             // 右上アイコンは触ってから5秒で消す
+  var LONG_PRESS_MS = 550;             // 長押しと判断するまでの時間
+  var WX_INTERVAL = 15 * 60 * 1000;    // 天気 15分ごと
+  var WX_RETRY = 3 * 60 * 1000;        // 失敗時は3分後に再試行
   var WX_PLACE = '調布';
   var WX_URL = 'https://api.open-meteo.com/v1/forecast' +
     '?latitude=35.652&longitude=139.541' +
     '&current=temperature_2m,weather_code,wind_speed_10m' +
     '&wind_speed_unit=ms&timezone=Asia%2FTokyo';
+  var INFO_MS = 8000;                  // 長押しの日付・天気を出しておく時間
+  var NIGHT_FROM = 22, NIGHT_TO = 6;   // 夜間に暗くする時間帯（22時〜6時）
+  var SHIFT_MS = 3 * 60 * 1000;        // 焼き付き防止：3分ごとに位置をずらす
+  var SHIFT_PX = 6;                    // ずらす幅（最大 ±6px）
   var THEMES = ['black', 'cream', 'orange'];
   var THEME_COLOR = { black: '#0d0d0d', cream: '#d6ccb6', orange: '#070605' };
   var WEEK = ['日', '月', '火', '水', '木', '金', '土'];
@@ -21,11 +27,11 @@
     set: function (k, v) { try { localStorage.setItem('flip.' + k, JSON.stringify(v)); } catch (e) {} }
   };
 
-  /* ===== パネルの大きさ（画面に合わせる） ===== */
+  /* ===== パネルの大きさ（画面に合わせて最大に） ===== */
   function fit() {
-    var w = window.innerWidth, h = window.innerHeight * 0.935; // 下のバーを除く
-    // 横幅＝パネル4枚(0.58)＋すき間2つ(0.05)＋コロン(0.2)＝パネル高さの2.62倍
-    var size = Math.min(h * 0.76, (w * 0.95) / 2.62);
+    var w = window.innerWidth, h = window.innerHeight;
+    // 横幅＝パネル4枚(0.5)＋すき間2つ(0.04)＋コロン(0.15)＝パネル高さの2.23倍
+    var size = Math.min(h * 0.8, (w * 0.96) / 2.23);
     document.documentElement.style.setProperty('--h', Math.round(size) + 'px');
   }
   window.addEventListener('resize', fit);
@@ -136,25 +142,55 @@
   };
 
   /* ===== 時計／ポモドーロ ===== */
-  var clockEl = $('#clock'), secEl = $('#sec'), labelEl = $('#label'), dateEl = $('#date');
-  var mode = 'clock', pomoEnd = 0, pomoDone = false, timer = null, lastDate = '';
+  var clockEl = $('#clock'), labelEl = $('#label');
+  var infoEl = $('#info'), infoDate = $('#infoDate'), infoWx = $('#infoWx'),
+      infoSub = $('#infoSub'), infoNote = $('#infoNote');
+  var wxLast = store.get('wx', null), wxFail = false, wxBusy = false, wxTimer = null;
+  var WMO = {
+    0: '快晴', 1: '晴れ', 2: '晴れ時々曇り', 3: '曇り', 45: '霧', 48: '霧',
+    51: '弱い霧雨', 53: '霧雨', 55: '強い霧雨', 56: '着氷性の霧雨', 57: '着氷性の霧雨',
+    61: '小雨', 63: '雨', 65: '強い雨', 66: '着氷性の雨', 67: '着氷性の雨',
+    71: '小雪', 73: '雪', 75: '大雪', 77: '霧雪',
+    80: 'にわか雨', 81: 'にわか雨', 82: '激しいにわか雨', 85: 'にわか雪', 86: '強いにわか雪',
+    95: '雷雨', 96: '雷雨（ひょう）', 99: '激しい雷雨（ひょう）'
+  };
+  var mode = 'clock', pomoEnd = 0, pomoDone = false, timer = null, infoOpen = false;
 
   function compute() {
     var now = new Date();   // 毎回 Date から再計算（ズレが溜まらない）
-    if (mode === 'clock') {
-      return { d: pad(now.getHours()) + pad(now.getMinutes()), small: pad(now.getSeconds()), now: now };
-    }
+    if (mode === 'clock') return { d: pad(now.getHours()) + pad(now.getMinutes()), now: now };
     var rem = Math.max(0, Math.ceil((pomoEnd - now.getTime()) / 1000));
-    return {
-      d: pad(Math.floor(rem / 60)) + pad(rem % 60),
-      small: pad(now.getHours()) + ':' + pad(now.getMinutes()),   // タイマー中は右下に現在時刻
-      rem: rem, now: now
-    };
+    return { d: pad(Math.floor(rem / 60)) + pad(rem % 60), rem: rem, now: now };
   }
 
-  function updateDate(now) {
-    var s = now.getFullYear() + '.' + pad(now.getMonth() + 1) + '.' + pad(now.getDate()) + '　' + WEEK[now.getDay()];
-    if (s !== lastDate) { dateEl.textContent = s; lastDate = s; }
+  function updateNight(now) {
+    var h = now.getHours();
+    document.body.classList.toggle('night', h >= NIGHT_FROM || h < NIGHT_TO);
+  }
+
+  // 1行が画面の横幅からはみ出すときは、その行の文字を小さくして収める
+  function fitRow(el) {
+    el.style.fontSize = '';
+    var max = window.innerWidth * 0.94, w = el.scrollWidth;
+    if (w > max) el.style.fontSize = (parseFloat(getComputedStyle(el).fontSize) * max / w) + 'px';
+  }
+  function setRow(el, text) {
+    if (el.textContent !== text) { el.textContent = text; fitRow(el); }
+  }
+
+  function updateInfo(now) {
+    setRow(infoDate, (now.getMonth() + 1) + '.' + pad(now.getDate()) + ' ' + WEEK[now.getDay()]);
+    if (wxLast) {
+      setRow(infoWx, (WMO[wxLast.code] || '—') + ' ' + wxLast.temp.toFixed(1) + '℃');
+      setRow(infoSub, '風 ' + wxLast.wind.toFixed(1) + 'm/s　' + pad(now.getSeconds()) + '秒');
+      var t = new Date(wxLast.at);
+      infoNote.textContent = WX_PLACE + '　' + pad(t.getHours()) + ':' + pad(t.getMinutes()) +
+        (wxFail ? ' 以降の更新に失敗' : ' 更新');
+    } else {
+      setRow(infoWx, wxFail ? '天気を取得できません' : '天気を取得中');
+      setRow(infoSub, pad(now.getSeconds()) + '秒');
+      infoNote.textContent = WX_PLACE;
+    }
   }
 
   function tick(animate) {
@@ -162,14 +198,16 @@
     var r = compute(), changed = false;
     for (var i = 0; i < 4; i++) if (digits[i].set(r.d.charAt(i), animate)) changed = true;
     if (changed && animate && !document.hidden) sound.flip();
-    secEl.textContent = r.small;
-    updateDate(r.now);
+    updateNight(r.now);
+    if (infoOpen) updateInfo(r.now);
     if (mode === 'pomo' && r.rem === 0 && !pomoDone) finishPomo();
 
-    // 次の切り替わりの瞬間に合わせて起きる（毎秒の常時描画はしない）
-    var delay, ms;
-    if (mode === 'pomo' && !pomoDone && (ms = pomoEnd - Date.now()) > 0) delay = (ms % 1000 || 1000) + 15;
-    else delay = 1000 - (Date.now() % 1000) + 15;
+    // 次の切り替わりの瞬間に合わせて起きる
+    // 通常時計は「分」の変わり目だけ起きる（秒を出していないので）。日付・秒を表示中とタイマー中は毎秒
+    var delay, ms, now = Date.now();
+    if (mode === 'pomo' && !pomoDone && (ms = pomoEnd - now) > 0) delay = (ms % 1000 || 1000) + 15;
+    else if (infoOpen) delay = 1000 - (now % 1000) + 15;
+    else delay = 60000 - (now % 60000) + 15;
     timer = setTimeout(function () { tick(true); }, delay);
   }
 
@@ -193,6 +231,26 @@
     tick(true);
   }
 
+  /* ===== 長押し：日付と秒を全画面で ===== */
+  var infoTimer = null;
+  function openInfo() {
+    infoOpen = true;
+    infoEl.classList.add('show');
+    updateInfo(new Date());
+    [infoDate, infoWx, infoSub].forEach(fitRow); // 表示してから幅を測る
+    if (!wxLast || Date.now() - wxLast.at > WX_INTERVAL) fetchWx();
+    clearTimeout(infoTimer);
+    infoTimer = setTimeout(closeInfo, INFO_MS);
+    if (navigator.vibrate) navigator.vibrate(15);
+    tick(false); // 毎秒の更新に切り替える
+  }
+  function closeInfo() {
+    clearTimeout(infoTimer);
+    infoOpen = false;
+    infoEl.classList.remove('show');
+    tick(false); // 分ごとの更新に戻す
+  }
+
   /* ===== テーマ ===== */
   var themeIdx = Math.max(0, THEMES.indexOf(store.get('theme', 'black')));
   function applyTheme() {
@@ -205,17 +263,68 @@
   function cycleTheme() { themeIdx = (themeIdx + 1) % THEMES.length; applyTheme(); }
   applyTheme();
 
-  /* ===== タップ／ダブルタップ ===== */
-  var tapTimer = null;
-  $('#stage').addEventListener('click', function () {
+  /* ===== 右上アイコン：触ってから5秒で消える ===== */
+  var iconsEl = $('#icons'), iconTimer = null;
+  function showIcons() {
+    iconsEl.classList.remove('hide');
+    clearTimeout(iconTimer);
+    iconTimer = setTimeout(function () { iconsEl.classList.add('hide'); }, ICON_HIDE_MS);
+  }
+  // 消えている間にアイコンの場所を押しても、まず表示するだけ（うっかり切り替えない）
+  iconsEl.addEventListener('click', function (e) {
+    if (iconsEl.classList.contains('hide')) { e.stopPropagation(); e.preventDefault(); showIcons(); }
+  }, true);
+  showIcons();
+
+  /* ===== タップ／ダブルタップ／長押し ===== */
+  var tapTimer = null, pressTimer = null, longFired = false, sx = 0, sy = 0;
+  var stage = $('#stage');
+
+  function pressStart(x, y) {
+    showIcons();
+    longFired = false; sx = x; sy = y;
+    clearTimeout(pressTimer);
+    pressTimer = setTimeout(function () {
+      longFired = true;
+      if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; }
+      openInfo();
+    }, LONG_PRESS_MS);
+  }
+  function pressMove(x, y) {
+    if (Math.abs(x - sx) > 12 || Math.abs(y - sy) > 12) clearTimeout(pressTimer);
+  }
+  function pressEnd() { clearTimeout(pressTimer); }
+
+  if (window.PointerEvent) {
+    stage.addEventListener('pointerdown', function (e) { pressStart(e.clientX, e.clientY); });
+    stage.addEventListener('pointermove', function (e) { pressMove(e.clientX, e.clientY); });
+    stage.addEventListener('pointerup', pressEnd);
+    stage.addEventListener('pointercancel', pressEnd);
+  } else {
+    stage.addEventListener('touchstart', function (e) { var t = e.touches[0]; pressStart(t.clientX, t.clientY); }, { passive: true });
+    stage.addEventListener('touchmove', function (e) { var t = e.touches[0]; pressMove(t.clientX, t.clientY); }, { passive: true });
+    stage.addEventListener('touchend', pressEnd);
+    stage.addEventListener('mousedown', function (e) { pressStart(e.clientX, e.clientY); });
+    stage.addEventListener('mouseup', pressEnd);
+  }
+
+  stage.addEventListener('click', function () {
+    if (longFired) { longFired = false; return; } // 長押しの指を離したときのクリックは無視
     if (sound.on) sound.init(); // 一時停止中の音声を操作のついでに再開
     if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; cycleTheme(); }
     else tapTimer = setTimeout(function () { tapTimer = null; toggleMode(); }, 280);
   });
+
+  // 日付・秒の画面は、タップで閉じる（長押しを離した直後のクリックでは閉じない）
+  infoEl.addEventListener('click', function () {
+    if (longFired) { longFired = false; return; }
+    closeInfo();
+  });
   document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
-  /* ===== 右上アイコン ===== */
+  /* ===== 右上アイコンの機能 ===== */
   var btnFs = $('#btnFs'), btnWake = $('#btnWake'), btnSnd = $('#btnSnd');
+  [btnFs, btnWake, btnSnd].forEach(function (b) { b.addEventListener('click', showIcons); });
 
   // 全画面
   var root = document.documentElement;
@@ -262,52 +371,50 @@
     if (sound.on) sound.flip(); // 試し鳴らし
   });
 
-  /* ===== 天気（Open-Meteo、APIキー不要） ===== */
-  var wxEl = $('#wx'), wxTimer = null, wxLast = store.get('wx', null);
-  var WMO = {
-    0: '快晴', 1: '晴れ', 2: '晴れ時々曇り', 3: '曇り', 45: '霧', 48: '霧',
-    51: '弱い霧雨', 53: '霧雨', 55: '強い霧雨', 56: '着氷性の霧雨', 57: '着氷性の霧雨',
-    61: '小雨', 63: '雨', 65: '強い雨', 66: '着氷性の雨', 67: '着氷性の雨',
-    71: '小雪', 73: '雪', 75: '大雪', 77: '霧雪',
-    80: 'にわか雨', 81: 'にわか雨', 82: '激しいにわか雨', 85: 'にわか雪', 86: '強いにわか雪',
-    95: '雷雨', 96: '雷雨（ひょう）', 99: '激しい雷雨（ひょう）'
-  };
-  function showWx(stale) {
-    if (!wxLast) { wxEl.textContent = WX_PLACE + '　天気を取得できません'; return; }
-    var t = new Date(wxLast.at);
-    wxEl.textContent = WX_PLACE + '　' + (WMO[wxLast.code] || '—') +
-      '　' + wxLast.temp.toFixed(1) + '℃' +
-      '　風 ' + wxLast.wind.toFixed(1) + 'm/s' +
-      '　' + pad(t.getHours()) + ':' + pad(t.getMinutes()) + (stale ? ' 更新失敗' : ' 更新');
-  }
+  /* ===== 天気（Open-Meteo、APIキー不要。長押しのときに表示） ===== */
   function fetchWx() {
     clearTimeout(wxTimer);
+    if (wxBusy) return;
+    wxBusy = true;
     var ctl = window.AbortController ? new AbortController() : null;
     var to = setTimeout(function () { if (ctl) ctl.abort(); }, 15000);
     fetch(WX_URL, ctl ? { signal: ctl.signal, cache: 'no-store' } : { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (j) {
-        clearTimeout(to);
         var c = j.current;
         wxLast = { code: c.weather_code, temp: c.temperature_2m, wind: c.wind_speed_10m, at: Date.now() };
+        wxFail = false;
         store.set('wx', wxLast);
-        showWx(false);
         wxTimer = setTimeout(fetchWx, WX_INTERVAL);
       })
       .catch(function () {
-        clearTimeout(to);
-        showWx(true);
+        wxFail = true;
         wxTimer = setTimeout(fetchWx, WX_RETRY);
+      })
+      .then(function () {
+        clearTimeout(to);
+        wxBusy = false;
+        if (infoOpen) updateInfo(new Date());
       });
   }
-  if (wxLast) showWx(false);
   fetchWx();
+
+  /* ===== 焼き付き防止：3分ごとに表示を数ピクセルずらす ===== */
+  var shiftSpots = [[0, 0], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+  var shiftIdx = 0;
+  function shift() {
+    shiftIdx = (shiftIdx + 1) % shiftSpots.length;
+    var p = shiftSpots[shiftIdx];
+    clockEl.style.transform = 'translate(' + p[0] * SHIFT_PX + 'px,' + p[1] * SHIFT_PX + 'px)';
+    iconsEl.style.transform = 'translate(' + p[0] * -3 + 'px,' + p[1] * -3 + 'px)';
+  }
+  setInterval(shift, SHIFT_MS);
 
   /* ===== 画面の表示／非表示 ===== */
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) return;
-    tick(false);                                         // 戻ったら一気に正しい表示へ
-    if (wake.want) wakeOn();                             // 画面を離れると Wake Lock は外れるので取り直す
+    tick(false);                       // 戻ったら一気に正しい表示へ
+    if (wake.want) wakeOn();           // 画面を離れると Wake Lock は外れるので取り直す
     if (!wxLast || Date.now() - wxLast.at > WX_INTERVAL) fetchWx();
   });
 

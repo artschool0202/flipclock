@@ -10,7 +10,7 @@
   --shadow: rgba(0, 0, 0, .6);
   --glow: none;
   /* --h はJSで画面サイズから計算して上書き */
-  --h: 170px;
+  --h: 270px;
 }
 [data-theme="cream"] {
   --bg: #d6ccb6;
@@ -40,25 +40,26 @@ html, body {
   background: var(--bg); color: var(--fg);
   font-family: "sans-serif-condensed", "Roboto Condensed", "Roboto", "Helvetica Neue", Arial, sans-serif;
   -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   transition: background-color .4s;
 }
 #stage {
-  position: fixed; top: 0; left: 0; right: 0; bottom: 6.5vh;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
   display: flex; align-items: center; justify-content: center;
 }
 
-/* ===== 時計の並び ===== */
-#clock { display: flex; align-items: center; }
+/* ===== 時計の並び（v3：パネルを細長く、すき間を詰めて最大化） ===== */
+#clock { display: flex; align-items: center; transition: transform 2s ease-in-out; }
 .group { display: flex; }
-.card + .card { margin-left: calc(var(--h) * .05); }
+.card + .card { margin-left: calc(var(--h) * .04); }
 .colon {
-  width: calc(var(--h) * .2); height: var(--h);
+  width: calc(var(--h) * .15); height: var(--h);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
 }
 .colon i {
-  display: block; width: calc(var(--h) * .075); height: calc(var(--h) * .075);
+  display: block; width: calc(var(--h) * .065); height: calc(var(--h) * .065);
   margin: calc(var(--h) * .1) 0; border-radius: 50%;
   background: var(--fg); opacity: .5; box-shadow: var(--glow);
 }
@@ -66,28 +67,28 @@ html, body {
 /* ===== フリップパネル ===== */
 .card {
   position: relative;
-  width: calc(var(--h) * .58); height: var(--h);   /* v2：縦長にして数字を大きく */
-  border-radius: calc(var(--h) * .05);
+  width: calc(var(--h) * .5); height: var(--h);
+  border-radius: calc(var(--h) * .045);
   perspective: calc(var(--h) * 4);
-  box-shadow: 0 calc(var(--h) * .03) calc(var(--h) * .07) var(--shadow),
+  box-shadow: 0 calc(var(--h) * .025) calc(var(--h) * .06) var(--shadow),
               0 0 0 1px rgba(0, 0, 0, .25);
 }
 /* 中央のヒンジ線 */
 .card::after {
   content: ""; position: absolute; left: 0; right: 0; top: 50%; z-index: 3;
-  height: calc(var(--h) * .014); margin-top: calc(var(--h) * -.007);
+  height: calc(var(--h) * .012); margin-top: calc(var(--h) * -.006);
   background: var(--hinge);
 }
 .half, .face { overflow: hidden; }
 .half { position: absolute; left: 0; right: 0; height: 50%; }
 .top {
   top: 0; background: var(--panel);
-  border-radius: calc(var(--h) * .05) calc(var(--h) * .05) 0 0;
+  border-radius: calc(var(--h) * .045) calc(var(--h) * .045) 0 0;
   box-shadow: inset 0 1px 0 var(--line);
 }
 .bottom {
   bottom: 0; background: var(--panel2);
-  border-radius: 0 0 calc(var(--h) * .05) calc(var(--h) * .05);
+  border-radius: 0 0 calc(var(--h) * .045) calc(var(--h) * .045);
 }
 /* 数字：半分の箱の中に全高の数字を置き、上下で見せる位置を変える */
 .half span, .face span {
@@ -112,11 +113,11 @@ html, body {
 }
 .front {
   background: var(--panel);
-  border-radius: calc(var(--h) * .05) calc(var(--h) * .05) 0 0;
+  border-radius: calc(var(--h) * .045) calc(var(--h) * .045) 0 0;
 }
 .back {
   background: var(--panel2);
-  border-radius: 0 0 calc(var(--h) * .05) calc(var(--h) * .05);
+  border-radius: 0 0 calc(var(--h) * .045) calc(var(--h) * .045);
   transform: rotateX(180deg);
 }
 /* めくれるときの陰 */
@@ -140,23 +141,37 @@ html, body {
 #clock.done .card { animation: blink 1s steps(2, start) 4; }
 @keyframes blink { 50% { opacity: .2; } }
 
-/* ===== 小さな表示 ===== */
-#sec {
-  position: absolute; right: 3.5vw; bottom: 3vh;
-  font-size: 6vh; letter-spacing: .06em; color: var(--dim); text-shadow: var(--glow);
-}
+/* ポモドーロ中の小さなラベル */
 #label {
-  position: absolute; left: 3.5vw; top: 3.2vh; display: none;
+  position: absolute; left: 3vw; top: 2.5vh; display: none;
   font-size: 3.4vh; letter-spacing: .25em; color: var(--dim);
 }
 body.pomo #label { display: block; }
 
-/* ===== 右上アイコン ===== */
-#icons { position: fixed; top: 1.5vh; right: 1.5vw; display: flex; z-index: 10; }
+/* ===== 長押しで出す日付と秒（全画面にドーン） ===== */
+#info {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: var(--bg); color: var(--fg); text-shadow: var(--glow);
+  font-weight: 700; line-height: 1; white-space: nowrap;
+  opacity: 0; visibility: hidden; transition: opacity .25s, visibility .25s;
+}
+#info.show { opacity: 1; visibility: visible; }
+/* 3行。はみ出す行はJSで文字を小さくして横幅に収める */
+#info .row { line-height: 1.12; }
+#infoDate { font-size: 28vh; letter-spacing: .02em; }
+#infoWx   { font-size: 28vh; }
+#infoSub  { font-size: 17vh; opacity: .75; margin-top: 1vh; }
+#infoNote { position: absolute; right: 3vw; bottom: 2.5vh; font-size: 3.6vh; font-weight: 400; color: var(--dim); }
+
+/* ===== 右上アイコン（触ってから5秒で消える） ===== */
+#icons { position: fixed; top: 1.5vh; right: 1.5vw; display: flex; z-index: 30; transition: opacity .6s; }
+#icons.hide { opacity: 0; }
+#info.show ~ #icons { display: none; }  /* 日付・秒の表示中はアイコンを出さない */
 #icons button {
   width: 10vh; height: 10vh; min-width: 30px; min-height: 30px;
   padding: 2.6vh; margin: 0; border: 0; background: none;
-  color: var(--fg); opacity: .22; outline: none; transition: opacity .2s;
+  color: var(--fg); opacity: .3; outline: none; transition: opacity .2s;
 }
 #icons button.on { opacity: .85; }
 #icons button[disabled] { display: none; }
@@ -167,12 +182,9 @@ body.pomo #label { display: block; }
 #btnSnd .w, #btnSnd.on .x { display: none; }
 #btnSnd.on .w { display: inline; }
 
-/* ===== 最下部の1行バー ===== */
-#bar {
-  position: fixed; left: 0; right: 0; bottom: 0;
-  height: 6.5vh; min-height: 18px; padding: 0 3.5vw;
-  display: flex; align-items: center; justify-content: space-between;
-  border-top: 1px solid var(--line);
-  font-size: 2.9vh; letter-spacing: .06em; color: var(--dim);
-  white-space: nowrap; overflow: hidden;
+/* ===== 夜間（22時〜6時）は全体を薄暗く ===== */
+#night {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 40;
+  background: #000; opacity: 0; pointer-events: none; transition: opacity 3s;
 }
+body.night #night { opacity: .6; }

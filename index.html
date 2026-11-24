@@ -18,8 +18,15 @@
     <div class="group"><div class="card"></div><div class="card"></div></div>
   </div>
   <div id="label"></div>
-  <div id="sec">00</div>
 </main>
+
+<!-- 長押しで出す日付・天気・気温・風速・秒 -->
+<div id="info">
+  <div class="row" id="infoDate">--.--</div>
+  <div class="row" id="infoWx">天気を取得中</div>
+  <div class="row" id="infoSub">風 -- m/s</div>
+  <div id="infoNote"></div>
+</div>
 
 <div id="icons">
   <button id="btnFs" type="button" aria-label="全画面">
@@ -33,7 +40,8 @@
   </button>
 </div>
 
-<footer id="bar"><span id="date">----.--.--</span><span id="wx">天気を取得中…</span></footer>
+<!-- 夜間（22時〜6時）に重ねる暗幕 -->
+<div id="night"></div>
 
 <script src="app.js"></script>
 </body>
