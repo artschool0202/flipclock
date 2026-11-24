@@ -1,5 +1,5 @@
 // オフラインでも時計が開けるよう、アプリ本体だけをキャッシュする（天気APIはキャッシュしない）
-var CACHE = 'flipclock-v4';
+var CACHE = 'flipclock-v7';
 var FILES = ['./', './index.html', './style.css', './app.js', './manifest.json',
   './icon.svg', './icon-192.png', './icon-512.png'];
 

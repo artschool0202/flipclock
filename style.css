@@ -181,6 +181,18 @@ body.pomo #label { display: block; }
 }
 #btnSnd .w, #btnSnd.on .x { display: none; }
 #btnSnd.on .w { display: inline; }
+#btnBell.on .x { display: none; }
+
+/* ===== 1時間以内に雨の予報があるときは数字を青に（v5） ===== */
+.half span, .face span, .colon i { transition: color 1.5s, background-color 1.5s; }
+body.rain { --fg: #7cc0ff; }
+[data-theme="cream"] body.rain { --fg: #2b5c9c; }
+[data-theme="orange"] body.rain { --fg: #5aa8ff; --glow: 0 0 calc(var(--h) * .05) rgba(60, 150, 255, .35); }
+
+/* ===== 毎時25分・50分のパタパタ（v5）：めくりを速くする ===== */
+#clock.fast .flap.go { animation-duration: .23s; }
+#clock.fast .flap.go .front::after,
+#clock.fast .flap.go .back::after { animation-duration: .23s; }
 
 /* ===== 夜間（22時〜6時）は全体を薄暗く ===== */
 #night {

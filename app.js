@@ -11,7 +11,12 @@
   var WX_URL = 'https://api.open-meteo.com/v1/forecast' +
     '?latitude=35.652&longitude=139.541' +
     '&current=temperature_2m,weather_code,wind_speed_10m' +
-    '&wind_speed_unit=ms&timezone=Asia%2FTokyo';
+    '&minutely_15=precipitation&forecast_minutely_15=8' +          // v5：15分ごとの降水量（2時間先まで）
+    '&hourly=precipitation,precipitation_probability,weather_code&forecast_hours=3' +
+    '&wind_speed_unit=ms&timezone=Asia%2FTokyo&timeformat=unixtime';
+  var CHIME_MINUTES = [25, 55];        // 毎時この分にパタパタ（v7：チャイムなし。v5 は 25・50）
+  var RAIN_MM = 0.1;                   // v5：この降水量(mm)以上の予報があれば「雨」とみなす
+  var RAIN_AHEAD_MS = 60 * 60 * 1000;  // v5：何分先までの雨を見るか（1時間）
   var INFO_MS = 8000;                  // 長押しの日付・天気を出しておく時間
   var NIGHT_FROM = 22, NIGHT_TO = 6;   // 夜間に暗くする時間帯（22時〜6時）
   var SHIFT_MS = 3 * 60 * 1000;        // 焼き付き防止：3分ごとに位置をずらす
@@ -99,6 +104,17 @@
       if (this.ctx.state === 'suspended') this.ctx.resume();
       return true;
     },
+    ready: function () { return !!this.ctx && this.ctx.state === 'running'; },
+    // v5：25分・50分の「パタパタパタパタ」。n回、間隔 dt 秒で軽い音を連打
+    patter: function (n, dt) {
+      if (!this.ready()) return;
+      var t = this.ctx.currentTime + 0.01;
+      for (var i = 0; i < n; i++) {
+        this.click(t + i * dt, 0.16, 2400 + Math.random() * 800);
+        this.click(t + i * dt + dt * 0.55, 0.3, 1400 + Math.random() * 300);
+      }
+      this.thump(t + n * dt);
+    },
     click: function (t, vol, freq) {
       var c = this.ctx, s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
       s.buffer = this.noise;
@@ -118,15 +134,15 @@
       o.start(t); o.stop(t + 0.06);
     },
     flip: function () {        // めくり始めの「パ」と着地の「タ」
-      if (!this.on || !this.ctx) return;
+      if (!this.on || !this.ready()) return;
       var t = this.ctx.currentTime + 0.005;
       this.click(t, 0.18, 2800);
       this.click(t + 0.39, 0.45, 1500);
       this.thump(t + 0.39);
     },
-    chime: function () {
-      if (!this.on || !this.ctx) return;
-      var c = this.ctx, t0 = c.currentTime + 0.05;
+    chime: function (delay) {
+      if (!this.ready()) return;
+      var c = this.ctx, t0 = c.currentTime + 0.05 + (delay || 0);
       [0, 0.7, 1.4].forEach(function (k) {
         [[880, 0], [1318.5, 0.14]].forEach(function (p) {
           var o = c.createOscillator(), g = c.createGain(), t = t0 + k + p[1];
@@ -178,13 +194,47 @@
     if (el.textContent !== text) { el.textContent = text; fitRow(el); }
   }
 
+  /* ===== v5：1時間以内に雨の予報があれば数字を青に ===== */
+  var rainSoon = false, demoRain = false;
+  function isWetCode(code) { return code >= 51; }   // 霧雨・雨・雪・にわか雨・雷雨
+  function checkRain(now) {
+    var w = wxLast;
+    if (!w || !w.m15t) return false;
+    if (now - w.at > 2 * 60 * 60 * 1000) return false;   // 2時間以上前の予報は使わない
+    var t0 = now / 1000, t1 = (now + RAIN_AHEAD_MS) / 1000, i;
+    if (isWetCode(w.code)) return true;                    // 今すでに降っている
+    // 15分ごとの降水量（各時刻＝その前15分の合計）
+    for (i = 0; i < w.m15t.length; i++) {
+      if (w.m15t[i] > t0 && w.m15t[i] - 900 < t1 && w.m15p[i] >= RAIN_MM) return true;
+    }
+    // 1時間ごとの降水量と天気（各時刻＝その前1時間）
+    for (i = 0; i < w.ht.length; i++) {
+      if (w.ht[i] > t0 && w.ht[i] - 3600 < t1 && (w.hp[i] >= RAIN_MM || isWetCode(w.hc[i]))) return true;
+    }
+    return false;
+  }
+  function updateRain(now) {
+    rainSoon = demoRain || checkRain(now.getTime());
+    document.body.classList.toggle('rain', rainSoon);
+  }
+  // 降水確率（今の時間帯）。表示用
+  function rainProb(now) {
+    var w = wxLast, t0 = now / 1000;
+    if (!w || !w.ht) return null;
+    for (var i = 0; i < w.ht.length; i++) if (w.ht[i] > t0) return w.hprob[i];
+    return null;
+  }
+
   function updateInfo(now) {
     setRow(infoDate, (now.getMonth() + 1) + '.' + pad(now.getDate()) + ' ' + WEEK[now.getDay()]);
     if (wxLast) {
       setRow(infoWx, (WMO[wxLast.code] || '—') + ' ' + wxLast.temp.toFixed(1) + '℃');
       setRow(infoSub, '風 ' + wxLast.wind.toFixed(1) + 'm/s　' + pad(now.getSeconds()) + '秒');
       var t = new Date(wxLast.at);
-      infoNote.textContent = WX_PLACE + '　' + pad(t.getHours()) + ':' + pad(t.getMinutes()) +
+      var prob = rainProb(now.getTime());
+      infoNote.textContent = (rainSoon ? '1時間以内に雨の予報　' : '') +
+        (prob !== null && prob !== undefined ? '降水確率 ' + prob + '%　' : '') +
+        WX_PLACE + '　' + pad(t.getHours()) + ':' + pad(t.getMinutes()) +
         (wxFail ? ' 以降の更新に失敗' : ' 更新');
     } else {
       setRow(infoWx, wxFail ? '天気を取得できません' : '天気を取得中');
@@ -193,12 +243,53 @@
     }
   }
 
+  /* ===== v5：毎時25分・50分のパタパタ＋チャイム ===== */
+  var bell = { on: store.get('bell', true) };
+  var shuffling = false, lastMinKey = null;
+  function isNight(now) { var h = now.getHours(); return h >= NIGHT_FROM || h < NIGHT_TO; }
+
+  // 4桁をバラバラの数字で素早くめくってから、正しい時刻に止める
+  function shuffle() {
+    var STEPS = 7, DT = 240;   // v6：いつものめくりに近く見えるよう少しゆっくり
+    shuffling = true;
+    clockEl.classList.add('fast');
+    var night = isNight(new Date());
+    if (bell.on && !night) {                 // 夜間（22〜6時）は音なし、動きだけ
+      sound.patter(STEPS, DT / 1000);
+    }
+    var step = 0;
+    (function next() {
+      if (step < STEPS) {
+        for (var i = 0; i < 4; i++) {
+          var cur = digits[i].v, n;
+          do { n = String(Math.floor(Math.random() * 10)); } while (n === cur);
+          digits[i].set(n, true);
+        }
+        step++;
+        setTimeout(next, DT);
+      } else {
+        var d = compute().d;   // 最後のひとめくりで正しい時刻へ
+        for (var j = 0; j < 4; j++) digits[j].set(d.charAt(j), true);
+        setTimeout(function () { clockEl.classList.remove('fast'); shuffling = false; }, 250);
+      }
+    })();
+  }
+
   function tick(animate) {
     clearTimeout(timer);
     var r = compute(), changed = false;
-    for (var i = 0; i < 4; i++) if (digits[i].set(r.d.charAt(i), animate)) changed = true;
-    if (changed && animate && !document.hidden) sound.flip();
+    var minKey = mode === 'clock' ? r.d : null;
+    var chimeNow = animate && !document.hidden && mode === 'clock' && !shuffling &&
+      lastMinKey !== null && minKey !== lastMinKey &&
+      CHIME_MINUTES.indexOf(r.now.getMinutes()) >= 0;
+    lastMinKey = minKey;
+    if (chimeNow) shuffle();
+    else if (!shuffling) {
+      for (var i = 0; i < 4; i++) if (digits[i].set(r.d.charAt(i), animate)) changed = true;
+      if (changed && animate && !document.hidden) sound.flip();
+    }
     updateNight(r.now);
+    updateRain(r.now);
     if (infoOpen) updateInfo(r.now);
     if (mode === 'pomo' && r.rem === 0 && !pomoDone) finishPomo();
 
@@ -215,7 +306,7 @@
     pomoDone = true;
     labelEl.textContent = 'DONE';
     clockEl.classList.remove('done'); void clockEl.offsetWidth; clockEl.classList.add('done');
-    sound.chime();
+    if (sound.on || bell.on) sound.chime();
     if (navigator.vibrate) navigator.vibrate([200, 120, 200, 120, 400]);
   }
 
@@ -323,8 +414,20 @@
   document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
   /* ===== 右上アイコンの機能 ===== */
-  var btnFs = $('#btnFs'), btnWake = $('#btnWake'), btnSnd = $('#btnSnd');
-  [btnFs, btnWake, btnSnd].forEach(function (b) { b.addEventListener('click', showIcons); });
+  var btnFs = $('#btnFs'), btnWake = $('#btnWake'), btnSnd = $('#btnSnd'), btnBell = $('#btnBell');
+  [btnFs, btnWake, btnSnd, btnBell].forEach(function (b) { b.addEventListener('click', showIcons); });
+
+  // v5：25分・50分のお知らせ（既定ON・設定は次回も引き継ぐ）
+  btnBell.classList.toggle('on', bell.on);
+  btnBell.addEventListener('click', function () {
+    bell.on = !bell.on; store.set('bell', bell.on);
+    btnBell.classList.toggle('on', bell.on);
+    if (bell.on) { sound.init(); setTimeout(function () { sound.patter(7, 0.24); }, 50); } // 試し鳴らし
+  });
+  // ブラウザの決まりで、画面に一度触れるまで音は出せない。最初に触れたときに音を使える状態にする
+  function unlockAudio() { if (bell.on || sound.on) sound.init(); }
+  document.addEventListener('pointerdown', unlockAudio, true);
+  document.addEventListener('touchstart', unlockAudio, { capture: true, passive: true });
 
   // 全画面
   var root = document.documentElement;
@@ -381,8 +484,14 @@
     fetch(WX_URL, ctl ? { signal: ctl.signal, cache: 'no-store' } : { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (j) {
-        var c = j.current;
-        wxLast = { code: c.weather_code, temp: c.temperature_2m, wind: c.wind_speed_10m, at: Date.now() };
+        var c = j.current, m = j.minutely_15 || {}, h = j.hourly || {};
+        wxLast = {
+          code: c.weather_code, temp: c.temperature_2m, wind: c.wind_speed_10m, at: Date.now(),
+          // v5：雨の判定用（時刻は UNIX 秒）
+          m15t: m.time || [], m15p: m.precipitation || [],
+          ht: h.time || [], hp: h.precipitation || [], hc: h.weather_code || [],
+          hprob: h.precipitation_probability || []
+        };
         wxFail = false;
         store.set('wx', wxLast);
         wxTimer = setTimeout(fetchWx, WX_INTERVAL);
@@ -394,6 +503,7 @@
       .then(function () {
         clearTimeout(to);
         wxBusy = false;
+        updateRain(new Date());
         if (infoOpen) updateInfo(new Date());
       });
   }
@@ -415,11 +525,17 @@
     if (document.hidden) return;
     tick(false);                       // 戻ったら一気に正しい表示へ
     if (wake.want) wakeOn();           // 画面を離れると Wake Lock は外れるので取り直す
+    if (sound.ctx && sound.ctx.state === 'suspended') sound.ctx.resume();
     if (!wxLast || Date.now() - wxLast.at > WX_INTERVAL) fetchWx();
   });
 
   /* ===== 起動 ===== */
   tick(false);
+  // お試し：URL の末尾に #demo を付けると、雨の色と25分・50分のパタパタを確かめられる
+  if (location.hash === '#demo') {
+    demoRain = true; updateRain(new Date());
+    setTimeout(shuffle, 1500);
+  }
   if ('serviceWorker' in navigator && window.isSecureContext) {
     navigator.serviceWorker.register('sw.js').catch(function () {});
   }
