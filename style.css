@@ -52,9 +52,9 @@ html, body {
 /* ===== 時計の並び ===== */
 #clock { display: flex; align-items: center; }
 .group { display: flex; }
-.card + .card { margin-left: calc(var(--h) * .055); }
+.card + .card { margin-left: calc(var(--h) * .05); }
 .colon {
-  width: calc(var(--h) * .26); height: var(--h);
+  width: calc(var(--h) * .2); height: var(--h);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
 }
 .colon i {
@@ -66,7 +66,7 @@ html, body {
 /* ===== フリップパネル ===== */
 .card {
   position: relative;
-  width: calc(var(--h) * .7); height: var(--h);
+  width: calc(var(--h) * .58); height: var(--h);   /* v2：縦長にして数字を大きく */
   border-radius: calc(var(--h) * .05);
   perspective: calc(var(--h) * 4);
   box-shadow: 0 calc(var(--h) * .03) calc(var(--h) * .07) var(--shadow),

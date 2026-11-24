@@ -24,7 +24,8 @@
   /* ===== パネルの大きさ（画面に合わせる） ===== */
   function fit() {
     var w = window.innerWidth, h = window.innerHeight * 0.935; // 下のバーを除く
-    var size = Math.min(h * 0.66, w * 0.27);
+    // 横幅＝パネル4枚(0.58)＋すき間2つ(0.05)＋コロン(0.2)＝パネル高さの2.62倍
+    var size = Math.min(h * 0.76, (w * 0.95) / 2.62);
     document.documentElement.style.setProperty('--h', Math.round(size) + 'px');
   }
   window.addEventListener('resize', fit);
